@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_server.html" import allocated_chips, usage_bars %}
+{% block title %}{{ server.name }} · Cost Service{% endblock %}
+{% block content %}
+{% set cost = usage.cost %}
+<div class="crumbs"><a href="/servers">Серверы</a></div>
+<h1>{{ server.name }} <small>{{ server.kind }}{% if server.host %} · {{ server.host }}{% endif %}</small></h1>
+{% if server.description %}<p class="muted lead">{{ server.description }}</p>{% endif %}
+
+<div class="grid2 wide-left">
+  <section class="card">
+    <h2>Комплектующие</h2>
+    <table class="compact">
+      <thead><tr><th>Категория</th><th>Модель / ТТХ</th><th class="num">Шт.</th><th class="num">Ёмкость</th><th class="num">В месяц</th></tr></thead>
+      <tbody>
+      {% for p in server.parts %}
+        <tr><td>{{ CATEGORIES[p.category][0] }}{% if p.category == 'disk' %} <span class="disk disk-{{ p.disk_type }}">{{ DISK_TYPES[p.disk_type] }}</span>{% endif %}</td>
+          <td>{{ p.name or '—' }}{% if p.spec %}<div class="muted small">{{ p.spec }}</div>{% endif %}</td>
+          <td class="num">{{ p.quantity | num }}</td>
+          <td class="num">{% if p.capacity is not none %}{{ p.capacity | num }} {{ CATEGORIES[p.category][1] }}{% else %}—{% endif %}</td>
+          <td class="num">{{ part_monthly(p) | money }}<div class="muted small">{% if p.price_mode == 'capex' %}{{ p.price | money(0) }} / {{ p.amortization_months }} мес{% else %}{{ p.price | money }} × {{ p.quantity | num }}{% endif %}</div></td></tr>
+      {% endfor %}
+      </tbody>
+      <tfoot><tr><td colspan="4">Комплектующие в месяц</td><td class="num">{{ (cost - maintenance_monthly(server)) | money }}</td></tr></tfoot>
+    </table>
+    {% if server.expenses %}
+    <h2 class="mt">Обслуживание</h2>
+    <table class="compact">
+      <tbody>{% for e in server.expenses %}
+        <tr><td>{{ e.name }}</td>
+          <td class="muted small">{% if e.period == 'percent' %}{{ e.amount | num }}% от покупки в год{% else %}{{ e.amount | money }} {{ EXPENSE_PERIODS[e.period] }}{% endif %}</td>
+          <td class="num">{{ expense_monthly(e, server) | money }}</td></tr>
+      {% endfor %}</tbody>
+      <tfoot><tr><td colspan="2">Обслуживание в месяц</td><td class="num">{{ maintenance_monthly(server) | money }}</td></tr></tfoot>
+    </table>
+    {% endif %}
+    <p class="mt">Сервер в месяц: <b>{{ cost | money }}</b></p>
+  </section>
+  <section class="card">
+    <h2>В сервисах</h2>
+    {{ usage_bars(usage) }}
+    {% if server.services %}
+    <table class="compact mt">
+      <tbody>{% for a in server.services | sort(attribute='service.name') %}
+        <tr><td><a href="/services/{{ a.service_id }}">{{ a.service.name }}</a></td>
+          <td class="parts">{{ allocated_chips(a.whole, allocated_amounts(a), usage.capacities) }}</td>
+          <td class="num">{{ allocation_cost(a) | money }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

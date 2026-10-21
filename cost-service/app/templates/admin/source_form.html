@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ source.name if source else 'Новый источник' }} · Cost Service{% endblock %}
+{% block content %}
+{% include "admin/_nav.html" %}
+<div class="narrow">
+<h1>{% if source %}Источник {{ source.name }}{% else %}Новый источник Prometheus{% endif %}</h1>
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+{% if info %}<div class="alert ok">Подключение работает: {{ info }}</div>{% endif %}
+<form method="post" action="{{ '/admin/prometheus/%d' % source.id if source else '/admin/prometheus' }}" class="form card" autocomplete="off">
+  <label>Название <input name="name" value="{{ form.name }}" required maxlength="100" placeholder="Prometheus prod"></label>
+  <label>Адрес <input name="url" value="{{ form.url }}" required placeholder="http://prometheus:9090"></label>
+  <p class="hint">Базовый адрес без <code>/api/v1</code>. Если Prometheus работает за префиксом, укажите его: <code>https://host/prometheus</code>.</p>
+
+  <label>Авторизация
+    <select name="auth_type" id="auth-type">
+      {% for value, label in AUTH_TYPES.items() %}<option value="{{ value }}" {{ 'selected' if form.auth_type == value }}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <div id="auth-basic" {{ 'hidden' if form.auth_type != 'basic' }}>
+    <label>Логин <input name="username" value="{{ form.username }}" autocomplete="off"></label>
+  </div>
+  <div id="auth-secret" {{ 'hidden' if form.auth_type == 'none' }}>
+    <label><span id="secret-label">{{ 'Токен' if form.auth_type == 'bearer' else 'Пароль' }}</span>
+      <input name="secret" type="password" autocomplete="new-password" placeholder="{{ 'оставьте пустым, чтобы не менять' if source and source.secret else '' }}">
+    </label>
+  </div>
+  <label class="check"><input type="checkbox" name="skip_tls" {{ 'checked' if form.skip_tls }}> Не проверять TLS-сертификат</label>
+
+  <div class="buttons mt">
+    <button class="btn btn-primary" name="action" value="save">Проверить и сохранить</button>
+    <button class="btn" name="action" value="test">Проверить подключение</button>
+    {% if allow_nocheck %}<button class="btn" name="action" value="save_nocheck">Сохранить без проверки</button>{% endif %}
+    <a class="btn btn-link" href="/admin/prometheus">Отмена</a>
+  </div>
+</form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  (function () {
+    const sel = document.getElementById("auth-type");
+    sel.addEventListener("change", () => {
+      document.getElementById("auth-basic").hidden = sel.value !== "basic";
+      document.getElementById("auth-secret").hidden = sel.value === "none";
+      document.getElementById("secret-label").textContent = sel.value === "bearer" ? "Токен" : "Пароль";
+    });
+  })();
+</script>
+{% endblock %}

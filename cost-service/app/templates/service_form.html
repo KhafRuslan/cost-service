@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ service.name if service else 'Новый сервис' }} · Cost Service{% endblock %}
+{% block content %}
+<div class="narrow">
+{% if service %}<div class="crumbs"><a href="/">Сервисы</a> / <a href="/services/{{ service.id }}">{{ service.name }}</a></div>{% endif %}
+<h1>{{ 'Изменить сервис' if service else 'Новый сервис' }}</h1>
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+<form method="post" action="{{ '/services/%d' % service.id if service else '/services' }}" class="form card">
+  <label>Название <input name="name" value="{{ form.name }}" required maxlength="200" placeholder="Elasticsearch" autofocus></label>
+  <label>Описание <textarea name="description" rows="3" placeholder="Кластер логов, команда платформы">{{ form.description }}</textarea></label>
+  <div class="buttons">
+    <button class="btn btn-primary">Сохранить</button>
+    <a class="btn btn-link" href="{{ '/services/%d' % service.id if service else '/' }}">Отмена</a>
+  </div>
+</form>
+</div>
+{% endblock %}

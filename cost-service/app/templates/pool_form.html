@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}{{ pool.name if pool else 'Новое подпространство' }} · Cost Service{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/">Сервисы</a> / <a href="/services/{{ service.id }}">{{ service.name }}</a></div>
+<h1>{{ 'Подпространство ' ~ pool.name if pool else 'Новое дисковое подпространство' }}</h1>
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+
+<div class="grid2 wide-left">
+<form method="post" action="{{ '/pools/%d' % pool.id if pool else '/services/%d/pools' % service.id }}" class="form card" id="pool-form">
+  <div class="row">
+    <label class="grow">Название <input name="name" value="{{ form.name }}" required maxlength="200" placeholder="Горячие данные (NVMe)"></label>
+    <label class="w-140">Тип дисков
+      <select name="disk_type" id="disk-type">
+        {% for value, label in DISK_TYPES.items() %}<option value="{{ value }}" {{ 'selected' if form.disk_type == value }}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <h2 class="mt">Серверы с дисками</h2>
+  <p class="hint">В подпространство входят диски выбранного типа с отмеченных серверов. Если ничего не отмечено — со всех серверов сервиса.
+    Учитываются только диски, выделенные сервису.</p>
+  {% for a in service.sorted_servers %}
+    <label class="check comp-check"><input type="checkbox" name="server_ids" value="{{ a.server_id }}" {{ 'checked' if a.server_id in form.server_ids }}>
+      <b>{{ a.server.name }}</b>{% if not a.whole %} <span class="muted">· выделена часть</span>{% endif %}
+      {% for t in DISK_TYPES %}{% set raw, cost = disks[(a.server_id, t)] %}
+        <span class="hint js-disk-info" data-type="{{ t }}" data-gb="{{ raw }}" data-cost="{{ cost | conv }}" {{ 'hidden' if t != form.disk_type }}>
+          {% if raw %}— {{ DISK_TYPES[t] }}: {{ raw | gb }}, {{ cost | money }} в мес{% else %}— нет дисков {{ DISK_TYPES[t] }}{% endif %}
+        </span>
+      {% endfor %}
+    </label>
+  {% else %}
+    <p class="muted">В сервисе ещё нет серверов. <a href="/services/{{ service.id }}/servers/add">Добавьте серверы</a> с дисками или задайте цену вручную.</p>
+  {% endfor %}
+
+  <label class="mt">Полезный объём, % от сырого
+    <input name="usable_percent" value="{{ form.usable_percent }}" inputmode="decimal" class="w-140" id="usable">
+  </label>
+  <p class="hint">Сколько места реально доступно под данные: RAID 10 — 50%, RAID 5 из 4 дисков — 75%, плюс запас на файловую систему
+    и watermark Elasticsearch (обычно 85%). Например, RAID 10 с запасом 15% — 42,5.</p>
+
+  <h2 class="mt">Цена гигабайта в месяц</h2>
+  <div class="radio-group">
+    <label class="radio"><input type="radio" name="price_source" value="disks" {{ 'checked' if form.price_source == 'disks' }}> Из стоимости дисков</label>
+    <label class="radio"><input type="radio" name="price_source" value="manual" {{ 'checked' if form.price_source == 'manual' }}> Задать вручную</label>
+  </div>
+  <div id="price-disks" {{ 'hidden' if form.price_source == 'manual' }}>
+    <p class="calc" id="calc">—</p>
+  </div>
+  <div id="price-manual" {{ 'hidden' if form.price_source != 'manual' }}>
+    <label>Цена за 1 ГБ в месяц, {{ current_currency().symbol }} <input name="manual_price" value="{{ form.manual_price }}" inputmode="decimal" class="w-200"></label>
+  </div>
+
+  <label class="mt">Описание <textarea name="description" rows="2">{{ form.description }}</textarea></label>
+  <div class="buttons">
+    <button class="btn btn-primary">Сохранить</button>
+    <a class="btn btn-link" href="/services/{{ service.id }}#pools">Отмена</a>
+    {% if pool %}<button class="btn btn-danger push-right" form="pool-delete">Удалить</button>{% endif %}
+  </div>
+</form>
+{% if pool %}<form method="post" action="/pools/{{ pool.id }}/delete" id="pool-delete" onsubmit="return confirm('Удалить подпространство {{ pool.name }}? Ресурсы останутся без цены.')"></form>{% endif %}
+
+{% if report %}
+<section class="card">
+  <h2>Сейчас</h2>
+  <dl>
+    <dt>Сырой объём</dt><dd>{{ report.raw_gb | gb }}</dd>
+    <dt>Полезный объём</dt><dd>{{ report.usable_gb | gb }}</dd>
+    <dt>Стоимость дисков</dt><dd>{{ report.disk_cost | money }} в мес</dd>
+    <dt>Цена ГБ</dt><dd>{{ report.price_per_gb | gbp }} {{ '(вручную)' if report.manual_price else '' }}</dd>
+    <dt>Занято ресурсами</dt><dd>{{ report.used_gb | gb }}{% if report.used_percent is not none %} ({{ report.used_percent | num(1) }}%){% endif %}</dd>
+    <dt>Ресурсов</dt><dd>{{ report.resources | length }}</dd>
+  </dl>
+  {% if report.disks %}
+  <h2 class="mt">Диски</h2>
+  <table class="compact">
+    <thead><tr><th>Сервер</th><th></th><th class="num">Объём</th><th class="num">В месяц</th></tr></thead>
+    <tbody>
+    {% for a, gb_, cost_ in report.disks %}
+      <tr><td>{{ a.server.name }}</td><td>{{ 'весь объём' if a.whole else 'выделено' }}</td>
+        <td class="num">{{ gb_ | gb }}</td><td class="num">{{ cost_ | money }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const form = document.getElementById("pool-form");
+  const typeSel = document.getElementById("disk-type");
+  const currency = {{ current_currency().symbol | tojson }};
+  const num = (v) => { const x = parseFloat(String(v || "").replace(/\s/g, "").replace(",", ".")); return isFinite(x) ? x : NaN; };
+  const fmt = (v, d) => v.toLocaleString("ru-RU", {maximumFractionDigits: d});
+  const gb = (v) => v >= 1000 ? fmt(v / 1000, 2) + " ТБ" : fmt(v, 2) + " ГБ";
+
+  function recalc() {
+    const type = typeSel.value;
+    const checks = [...form.querySelectorAll("input[name=server_ids]")];
+    const anyChecked = checks.some(c => c.checked);
+    let raw = 0, cost = 0;
+    form.querySelectorAll(".js-disk-info").forEach(el => {
+      el.hidden = el.dataset.type !== type;
+      const box = el.closest("label").querySelector("input[type=checkbox]");
+      if (el.dataset.type === type && (!anyChecked || box.checked)) { raw += +el.dataset.gb; cost += +el.dataset.cost; }
+    });
+    const manual = form.querySelector("input[name=price_source]:checked").value === "manual";
+    document.getElementById("price-disks").hidden = manual;
+    document.getElementById("price-manual").hidden = !manual;
+    const usable = raw * num(document.getElementById("usable").value) / 100;
+    const calc = document.getElementById("calc");
+    if (!raw) { calc.textContent = "Нет дисков выбранного типа — цену можно задать только вручную."; return; }
+    const price = usable > 0 ? cost / usable : NaN;
+    calc.innerHTML = `${fmt(cost, 2)} ${currency} в мес ÷ ${gb(usable)} полезных = <b>${isFinite(price) ? price.toLocaleString("ru-RU", {maximumFractionDigits: 4}) : "—"} ${currency} за ГБ</b>`
+      + `<br><span class="muted">сырой объём ${gb(raw)}</span>`;
+  }
+  form.addEventListener("input", recalc);
+  form.addEventListener("change", recalc);
+  recalc();
+})();
+</script>
+{% endblock %}

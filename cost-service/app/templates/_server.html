@@ -1,0 +1,37 @@
+{# Комплектующие сервера одной строкой «чипов» #}
+{% macro parts_chips(server) -%}
+  {% for p in server.parts %}
+    <span class="chip" title="{{ p.name }} {{ p.spec }} · {{ part_monthly(p) | money }} в мес">
+      {{ CATEGORIES[p.category][0] }}{% if p.category == 'disk' %} {{ DISK_TYPES[p.disk_type] }}{% endif %}:
+      {% if p.quantity != 1 %}{{ p.quantity | num }} × {% endif %}{% if p.capacity is not none %}{{ p.capacity | num }} {{ CATEGORIES[p.category][1] }}{% else %}{{ p.name or '—' }}{% endif %}
+    </span>
+  {% else %}<span class="muted">нет комплектующих</span>{% endfor %}
+{%- endmacro %}
+
+{# Количество ресурса: ГБ — в ТБ при больших объёмах, остальное — числом с единицей #}
+{% macro amount(key, value) -%}
+  {%- if RESOURCES[key][1] == 'ГБ' %}{{ value | gb }}{% else %}{{ value | num }}&nbsp;{{ RESOURCES[key][1] }}{% endif -%}
+{%- endmacro %}
+
+{# Что выделено сервису: «весь сервер» или ресурсы «выделено из ёмкости» #}
+{% macro allocated_chips(whole, amounts, capacities) -%}
+  {% if whole %}<span class="chip chip-whole">весь сервер</span>{% endif %}
+  {% for key, value in amounts.items() %}
+    {% if not whole %}<span class="chip">{{ RESOURCES[key][0] }}: {{ amount(key, value) }} <span class="muted">из {{ amount(key, capacities[key].total) }}</span></span>{% endif %}
+  {% endfor %}
+{%- endmacro %}
+
+{# Загрузка сервера: по каждому ресурсу — выделено из ёмкости #}
+{% macro usage_bars(usage) -%}
+  {% if not usage.server.services %}<span class="run-text small">не используется</span>
+  {% elif usage.overbooked %}<span class="err-text small">выделено больше ёмкости: {{ usage.overbooked | map('extract', RESOURCES) | map(attribute=0) | join(', ') }}</span>
+  {% endif %}
+  {% for key, cap in usage.capacities.items() %}
+    {% set used = usage.allocated.get(key, 0) %}{% set pct = used / cap.total * 100 %}
+    <div class="res-bar" title="{{ RESOURCES[key][0] }}: выделено {{ used | num }} из {{ cap.total | num }} {{ RESOURCES[key][1] }}">
+      <span class="res-label">{{ RESOURCES[key][0] }}</span>
+      <span class="bar"><span class="{{ 'over' if pct > 100.001 else ('full' if pct >= 99.999) }}" style="width: {{ [pct, 100] | min }}%"></span></span>
+      <span class="res-val">{% if RESOURCES[key][1] == 'ГБ' %}{{ used | gb }} / {{ cap.total | gb }}{% else %}{{ used | num }} / {{ cap.total | num }}&nbsp;{{ RESOURCES[key][1] }}{% endif %}</span>
+    </div>
+  {% endfor %}
+{%- endmacro %}

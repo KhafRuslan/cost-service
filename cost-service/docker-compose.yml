@@ -1,0 +1,17 @@
+services:
+  cost-service:
+    build: .
+    # Сеть хоста: сервис обращается к Prometheus так же, как сама машина (localhost — это хост),
+    # и слушает порт 8001 прямо на хосте (8000 занят es-query-service)
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TIMEZONE: ${TIMEZONE:-Europe/Moscow}
+    volumes:
+      - cost-data:/data
+    restart: unless-stopped
+
+volumes:
+  cost-data:

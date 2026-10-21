@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_server.html" import parts_chips, usage_bars %}
+{% block title %}Серверы · Cost Service{% endblock %}
+{% block content %}
+{% set messages = {'saved': 'Сервер сохранён', 'created_many': 'Серверы созданы', 'deleted': 'Сервер удалён'} %}
+{% if msg in messages %}<div class="alert ok">{{ messages[msg] }}</div>{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Серверы в месяц</div>
+    <div class="stat-value">{{ total | money(0) }}</div>
+    <div class="stat-sub">{{ usages | length }} серверов</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Не распределено по сервисам</div>
+    <div class="stat-value {{ 'run-text' if unallocated > 0.005 }}">{{ unallocated | money(0) }}</div>
+    <div class="stat-sub">стоимость невыделенных ресурсов</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Без сервиса</div>
+    <div class="stat-value">{{ idle }}</div>
+    <div class="stat-sub">серверов не добавлены ни в один сервис</div>
+  </div>
+</div>
+
+<div class="title-row">
+  <h1>Серверы</h1>
+  <div class="actions">
+    {% if usages %}<label class="search">{{ icon('search', 16) }}<input type="search" id="server-search" placeholder="Поиск: имя, хост, сервис, модель"></label>{% endif %}
+    {% if user.can_edit %}<a class="btn btn-primary" href="/servers/new">+ Новый сервер</a>{% endif %}
+  </div>
+</div>
+
+{% if usages %}
+<div class="table-wrap">
+<table id="servers-table">
+  <thead><tr><th>Сервер</th><th>Комплектующие</th><th>Сервисы</th><th>Выделено сервисам</th><th class="num">В месяц</th></tr></thead>
+  <tbody>
+  {% for u in usages %}{% set srv = u.server %}
+    <tr data-search="{{ [srv.name, srv.host, srv.kind] | join(' ') | lower }} {{ srv.services | map(attribute='service.name') | join(' ') | lower }} {{ srv.parts | map(attribute='name') | join(' ') | lower }}">
+      <td><a href="/servers/{{ srv.id }}" class="server-name"><b>{{ srv.name }}</b></a>
+        <div class="muted small">{{ srv.kind }}{% if srv.host %} · <span class="mono">{{ srv.host }}</span>{% endif %}</div></td>
+      <td class="parts">{{ parts_chips(srv) }}</td>
+      <td>
+        {% for a in srv.services | sort(attribute='service.name') %}
+          <a class="chip" href="/services/{{ a.service_id }}#servers">{{ a.service.name }}{% if a.whole %} · весь{% endif %}</a>
+        {% else %}<span class="muted">—</span>{% endfor %}
+      </td>
+      <td class="usage">{{ usage_bars(u) }}</td>
+      <td class="num"><b>{{ u.cost | money }}</b>{% set mnt = maintenance_monthly(srv) %}{% if mnt %}<div class="small muted">в т. ч. обслуживание {{ mnt | money }}</div>{% endif %}{% if u.server.services and u.unallocated_cost > 0.005 %}<div class="small run-text">не выделено {{ u.unallocated_cost | money }}</div>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+  <tfoot><tr><td colspan="4">Итого</td><td class="num"><b>{{ total | money }}</b></td></tr></tfoot>
+</table>
+</div>
+<p class="muted empty-search" id="no-match" hidden>Ничего не найдено</p>
+{% else %}
+<div class="empty">
+  <p><b>Серверов пока нет.</b></p>
+  <p class="muted">Опишите серверы с комплектующими и ценами, а затем выделите их сервисам — целиком или конкретные ресурсы.</p>
+  {% if user.can_edit %}<a class="btn btn-primary" href="/servers/new">+ Новый сервер</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const input = document.getElementById("server-search");
+  if (!input) return;
+  const rows = [...document.querySelectorAll("#servers-table tbody tr")];
+  input.addEventListener("input", () => {
+    const q = input.value.trim().toLowerCase();
+    let shown = 0;
+    rows.forEach(tr => { const ok = !q || tr.dataset.search.includes(q); tr.hidden = !ok; if (ok) shown++; });
+    document.getElementById("no-match").hidden = shown > 0;
+  });
+})();
+</script>
+{% endblock %}

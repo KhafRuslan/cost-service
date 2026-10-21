@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% set r = rr.resource %}
+{% block title %}{{ r.name }} · Cost Service{% endblock %}
+{% block content %}
+{% set messages = {'saved': ('ok', 'Ресурс сохранён'), 'refreshed': ('ok', 'Размер обновлён'),
+                   'refresh_failed': ('err', 'Не удалось обновить размер: ' ~ (r.last_error or ''))} %}
+{% if msg in messages %}<div class="alert {{ messages[msg][0] }}">{{ messages[msg][1] }}</div>{% endif %}
+
+<div class="crumbs"><a href="/">Сервисы</a> / <a href="/services/{{ service.id }}">{{ service.name }}</a></div>
+<div class="title-row">
+  <div><h1>{{ r.name }} <small>{{ r.kind }}</small></h1>
+    {% if r.description %}<p class="muted lead">{{ r.description }}</p>{% endif %}</div>
+  {% if user.can_edit %}
+  <div class="actions">
+    {% if r.uses_metric %}<form method="post" action="/resources/{{ r.id }}/refresh"><button class="btn">{{ icon('refresh', 14) }} Обновить размер</button></form>{% endif %}
+    <a class="btn" href="/resources/{{ r.id }}/edit">Изменить</a>
+    <form method="post" action="/resources/{{ r.id }}/delete" onsubmit="return confirm('Удалить ресурс {{ r.name }} вместе с историей размеров?')"><button class="btn btn-danger">Удалить</button></form>
+  </div>
+  {% endif %}
+</div>
+
+{% if r.uses_metric and r.last_error and msg != 'refresh_failed' %}
+<div class="alert err">Последнее обновление {{ r.last_checked_at | dt }} не удалось: {{ r.last_error }}</div>
+{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Стоимость в месяц</div>
+    <div class="stat-value">{{ rr.cost | money }}</div>
+    <div class="stat-sub">{% if rr.cost is not none %}{{ rr.size_gb | gb }} × {{ rr.price_per_gb | gbp }}{% elif not pool %}не выбрано подпространство{% elif rr.size_gb is none %}размер неизвестен{% else %}у подпространства нет цены{% endif %}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Размер</div>
+    <div class="stat-value">{{ rr.size_gb | gb }}</div>
+    <div class="stat-sub">{% if r.size_factor != 1 %}с множителем × {{ r.size_factor | num }}{% elif r.uses_metric %}из Prometheus{% else %}задан вручную{% endif %}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Подпространство</div>
+    <div class="stat-value stat-value-sm">{% if pool %}{{ pool.pool.name }} <span class="disk disk-{{ pool.pool.disk_type }}">{{ DISK_TYPES[pool.pool.disk_type] }}</span>{% else %}<span class="run-text">не выбрано</span>{% endif %}</div>
+    <div class="stat-sub">{% if pool and pool.usable_gb %}{{ ((rr.size_gb or 0) / pool.usable_gb * 100) | num(1) }}% полезного объёма{% endif %}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Прирост за {{ days }} дн.</div>
+    <div class="stat-value">{% if growth is not none %}{{ '+' if growth >= 0 }}{{ growth | gb }}{% else %}—{% endif %}</div>
+    <div class="stat-sub">{% if growth is not none and rr.price_per_gb is not none %}{{ '+' if growth >= 0 }}{{ (growth * rr.price_per_gb) | money }} в мес{% else %}мало данных{% endif %}</div>
+  </div>
+</div>
+
+{% if r.uses_metric %}
+<section class="card">
+  <div class="title-row">
+    <h2>Размер за {{ days }} дн.</h2>
+    <nav class="seg">{% for d in history_days %}<a href="?days={{ d }}" class="{{ 'active' if d == days }}">{{ d }} дн.</a>{% endfor %}</nav>
+  </div>
+  {% if chart %}
+  <div class="chart">
+    <div class="chart-y"><span>{{ chart.max_gb | gb }}</span><span>{{ chart.min_gb | gb }}</span></div>
+    <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" preserveAspectRatio="none" role="img" aria-label="График размера">
+      <polyline points="{{ chart.points }}" fill="none" stroke="var(--primary)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+    </svg>
+    <div class="chart-x"><span>{{ chart.start.strftime('%d.%m %H:%M') }}</span><span>{{ chart.end.strftime('%d.%m %H:%M') }}</span></div>
+  </div>
+  {% else %}
+  <p class="muted">Недостаточно данных для графика: размер обновляется {% if settings.metrics_refresh_minutes %}каждые {{ settings.metrics_refresh_minutes }} мин.{% else %}только вручную{% endif %}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<div class="grid2">
+  <section class="card">
+    <h2>Как считается</h2>
+    <dl>
+      {% if r.uses_metric %}
+      <dt>Источник</dt><dd>{{ r.source.name if r.source else '— (удалён)' }}</dd>
+      <dt>PromQL</dt><dd><code>{{ r.promql }}</code></dd>
+      <dt>Значение метрики</dt><dd>{% if r.last_bytes is not none %}{{ (r.last_bytes / 1e9) | gb }} <span class="muted">на {{ r.last_success_at | dt }}</span>{% else %}—{% endif %}</dd>
+      {% else %}
+      <dt>Размер вручную</dt><dd>{{ r.manual_gb | gb }}</dd>
+      {% endif %}
+      <dt>Множитель</dt><dd>× {{ r.size_factor | num }}</dd>
+      <dt>Цена ГБ</dt><dd>{{ rr.price_per_gb | gbp }} в мес{% if pool %} <span class="muted">({{ 'задана вручную' if pool.manual_price else 'из стоимости дисков' }})</span>{% endif %}</dd>
+      <dt>Итого</dt><dd><b>{{ rr.cost | money }}</b> в мес</dd>
+    </dl>
+  </section>
+  {% if samples %}
+  <section class="card">
+    <h2>Последние значения</h2>
+    <table class="compact">
+      <thead><tr><th>Время</th><th class="num">Метрика</th></tr></thead>
+      <tbody>{% for smp in samples %}<tr><td>{{ smp.ts | dt }}</td><td class="num">{{ (smp.bytes / 1e9) | gb }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

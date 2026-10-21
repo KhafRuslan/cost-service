@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "_alloc.html" import alloc_fields %}
+{% from "_server.html" import allocated_chips, parts_chips %}
+{% block title %}{{ a.server.name }} в {{ a.service.name }} · Cost Service{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/">Сервисы</a> / <a href="/services/{{ a.service_id }}#servers">{{ a.service.name }}</a></div>
+<h1>Сервер {{ a.server.name }} в сервисе {{ a.service.name }}</h1>
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+
+<div class="grid2 wide-left">
+<form method="post" action="/assignments/{{ a.id }}" class="form card">
+  <h2>Выделено сервису</h2>
+  <p class="hint">Весь сервер — сервису относится вся стоимость, в том числе после изменения комплектующих.
+    Иначе укажите ресурсы: цена единицы — стоимость комплектующих ÷ их ёмкость, прочие расходы сервера делятся пропорционально.</p>
+  {{ alloc_fields(a.server, capacities, free, '', form, form.whole, not others, full_cost) }}
+  {% if others %}<p class="hint">Весь сервер выделить нельзя: он используется и в других сервисах.</p>{% endif %}
+  <div class="buttons mt">
+    <button class="btn btn-primary">Сохранить</button>
+    <a class="btn btn-link" href="/services/{{ a.service_id }}#servers">Отмена</a>
+  </div>
+</form>
+
+<section class="card">
+  <h2>Сервер</h2>
+  <dl>
+    <dt>Стоимость</dt><dd>{{ full_cost | money }} в мес</dd>
+    <dt>Сейчас сервису</dt><dd>{{ cost | money }} в мес</dd>
+    <dt>Комплектующие</dt><dd class="parts">{{ parts_chips(a.server) }}</dd>
+  </dl>
+  {% if others %}
+  <h2 class="mt">Другие сервисы на этом сервере</h2>
+  <div class="scroll-x"><table class="compact">
+    <tbody>{% for o in others | sort(attribute='service.name') %}
+      <tr><td><a href="/services/{{ o.service_id }}">{{ o.service.name }}</a></td>
+        <td class="parts">{{ allocated_chips(o.whole, allocated_amounts(o), capacities) }}</td>
+        <td class="num">{{ allocation_cost(o) | money }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  <p class="mt"><a href="/servers/{{ a.server_id }}">Открыть сервер</a></p>
+</section>
+</div>
+{% endblock %}

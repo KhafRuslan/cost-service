@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Prometheus · Cost Service{% endblock %}
+{% block content %}
+{% include "admin/_nav.html" %}
+{% set messages = {'saved': 'Источник сохранён', 'deleted': 'Источник удалён'} %}
+{% if msg in messages %}<div class="alert ok">{{ messages[msg] }}</div>{% endif %}
+
+<div class="title-row">
+  <h1>Источники Prometheus</h1>
+  <div class="actions"><a class="btn btn-primary" href="/admin/prometheus/new">+ Добавить источник</a></div>
+</div>
+<p class="hint">Из источников ресурсы берут размер по PromQL-запросу. Подойдёт любой сервер с API Prometheus: Prometheus, VictoriaMetrics, Thanos, Mimir.</p>
+{% if sources %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Название</th><th>Адрес</th><th>Авторизация</th><th>TLS</th><th>Ресурсов</th><th></th></tr></thead>
+  <tbody>
+  {% for src in sources %}
+    <tr>
+      <td><a href="/admin/prometheus/{{ src.id }}">{{ src.name }}</a></td>
+      <td class="mono">{{ src.url }}</td>
+      <td>{{ AUTH_TYPES[src.auth_type] }}</td>
+      <td>{% if src.verify_tls %}проверяется{% else %}<span class="run-text">не проверяется</span>{% endif %}</td>
+      <td>{{ usage.get(src.id, 0) }}</td>
+      <td class="cell-actions"><div class="actions nowrap">
+        <a class="btn btn-sm" href="/admin/prometheus/{{ src.id }}">Изменить</a>
+        <form method="post" action="/admin/prometheus/{{ src.id }}/delete" onsubmit="return confirm('Удалить источник {{ src.name }}?{% if usage.get(src.id) %} Ресурсы ({{ usage[src.id] }}) останутся без источника и перестанут обновляться.{% endif %}')"><button class="btn btn-sm btn-danger">Удалить</button></form>
+      </div></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty"><p>Источников пока нет.</p><a class="btn btn-primary" href="/admin/prometheus/new">+ Добавить источник</a></div>
+{% endif %}
+{% endblock %}

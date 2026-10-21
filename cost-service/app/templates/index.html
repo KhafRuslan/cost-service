@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Сервисы · Cost Service{% endblock %}
+{% block content %}
+{% if msg == 'deleted' %}<div class="alert ok">Сервис удалён</div>{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Инфраструктура в месяц</div>
+    <div class="stat-value">{{ total_infra | money(0) }}</div>
+    <div class="stat-sub">серверы сервисов (с учётом долей)</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Хранение ресурсов в месяц</div>
+    <div class="stat-value">{{ total_allocated | money(0) }}</div>
+    <div class="stat-sub">распределено по ресурсам</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Свободное место в месяц</div>
+    <div class="stat-value">{{ total_unallocated | money(0) }}</div>
+    <div class="stat-sub">оплачено, но не занято ресурсами</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Ошибки метрик</div>
+    <div class="stat-value {{ 'err-text' if metric_errors }}">{{ metric_errors }}</div>
+    <div class="stat-sub">ресурсов не удалось обновить</div>
+  </div>
+</div>
+
+<div class="title-row">
+  <h1>Сервисы</h1>
+  {% if user.can_edit %}<div class="actions"><a class="btn btn-primary" href="/services/new">+ Новый сервис</a></div>{% endif %}
+</div>
+
+{% if reports %}
+<div class="table-wrap">
+<table>
+  <thead><tr>
+    <th>Сервис</th><th class="num">Серверов</th><th class="num">Подпространств</th><th class="num">Ресурсов</th>
+    <th class="num">Инфраструктура / мес</th><th class="num">Хранение ресурсов / мес</th><th class="num">Свободно / мес</th>
+  </tr></thead>
+  <tbody>
+  {% for rep in reports %}
+    <tr>
+      <td><a href="/services/{{ rep.service.id }}"><b>{{ rep.service.name }}</b></a>
+        {% if rep.service.description %}<div class="muted small">{{ rep.service.description | truncate(90) }}</div>{% endif %}</td>
+      <td class="num">{{ rep.servers | length }}</td>
+      <td class="num">{{ rep.pools | length }}</td>
+      <td class="num">{{ rep.resources | length }}{% if rep.resources_without_cost %} <span class="badge run" title="Нет размера или цены ГБ">{{ rep.resources_without_cost }} без цены</span>{% endif %}</td>
+      <td class="num">{{ rep.infra_cost | money }}</td>
+      <td class="num">{{ rep.allocated_cost | money }}</td>
+      <td class="num">{{ rep.unallocated_cost | money }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty">
+  <p><b>Сервисов пока нет.</b></p>
+  <p class="muted">Сервис — это приложение, например Elasticsearch. В него добавляются серверы из раздела «Серверы» (целиком или долями),<br>
+    описываются дисковые подпространства (HDD/SSD/NVMe) и ресурсы, чей размер берётся из Prometheus.</p>
+  {% if user.can_edit %}<a class="btn btn-primary" href="/services/new">+ Новый сервис</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

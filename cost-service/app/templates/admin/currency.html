@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Валюты · Cost Service{% endblock %}
+{% block content %}
+{% include "admin/_nav.html" %}
+<div class="narrow">
+<h1>Курсы валют</h1>
+{% if msg == 'saved' %}<div class="alert ok">Курсы сохранены</div>{% endif %}
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+<p class="muted">Все суммы хранятся в долларах. Пользователи выбирают валюту показа в шапке ($ € ₽):
+  суммы на страницах и в формах пересчитываются по этим курсам. Валюта без курса недоступна.</p>
+<form method="post" action="/admin/currency" class="form card">
+  {% for code, (symbol, name) in CURRENCIES.items() if code != 'USD' %}
+  <label>{{ name | capitalize }} ({{ code }})
+    <span class="with-unit rate-input">1 $ = <input name="{{ code }}" value="{{ form.get(code, '') }}" inputmode="decimal" placeholder="не задан"> {{ symbol }}</span>
+  </label>
+  {% endfor %}
+  <p class="hint">Пустое поле — курс не задан. Изменение курса меняет суммы в этой валюте у всех пользователей;
+    цены, сохранённые в долларах, не меняются.{% if updated_at %} Последнее изменение: {{ updated_at | dt }}.{% endif %}</p>
+  <div class="buttons"><button class="btn btn-primary">Сохранить</button></div>
+</form>
+</div>
+{% endblock %}

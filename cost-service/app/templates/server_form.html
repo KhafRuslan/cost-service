@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% from "_server.html" import allocated_chips, usage_bars %}
+{% block title %}{{ server.name if server else 'Новый сервер' }} · Cost Service{% endblock %}
+
+{% macro part_row(p) %}
+<tr class="part-row">
+  <td>
+    <select name="part_category" class="js-category">
+      {% for value, (label, unit) in CATEGORIES.items() %}<option value="{{ value }}" data-unit="{{ unit }}" {{ 'selected' if p.category == value }}>{{ label }}</option>{% endfor %}
+    </select>
+  </td>
+  <td class="stack">
+    <input name="part_name" value="{{ p.name }}" placeholder="Модель" maxlength="200">
+    <input name="part_spec" value="{{ p.spec }}" placeholder="ТТХ: частота, скорость…" maxlength="500">
+  </td>
+  <td>
+    <div class="with-unit"><input name="part_capacity" value="{{ p.capacity }}" inputmode="decimal" class="js-capacity"><span class="unit js-unit">{{ CATEGORIES[p.category][1] if p.category in CATEGORIES }}</span></div>
+  </td>
+  <td>
+    <select name="part_disk_type" class="js-disk-type" {{ 'hidden' if p.category != 'disk' }}>
+      {% for value, label in DISK_TYPES.items() %}<option value="{{ value }}" {{ 'selected' if p.disk_type == value }}>{{ label }}</option>{% endfor %}
+    </select>
+  </td>
+  <td><input name="part_quantity" value="{{ p.quantity }}" inputmode="decimal" class="js-qty num-input"></td>
+  <td><input name="part_price" value="{{ p.price }}" inputmode="decimal" class="js-price" placeholder="0"></td>
+  <td>
+    <select name="part_price_mode" class="js-mode">
+      {% for value, label in PRICE_MODES.items() %}<option value="{{ value }}" {{ 'selected' if p.price_mode == value }}>{{ label }}</option>{% endfor %}
+    </select>
+  </td>
+  <td>
+    <div class="with-unit js-amort-wrap" {{ 'hidden' if p.price_mode != 'capex' }}><input name="part_amortization_months" value="{{ p.amortization_months }}" inputmode="numeric" class="js-amort num-input"><span class="unit">мес</span></div>
+  </td>
+  <td class="num nowrap js-row-total">—</td>
+  <td><button type="button" class="btn btn-sm btn-danger js-remove" title="Удалить строку">✕</button></td>
+</tr>
+{% endmacro %}
+
+{% macro expense_row(e) %}
+<tr class="expense-row">
+  <td><input name="exp_name" value="{{ e.name }}" placeholder="Электроэнергия" maxlength="200" list="expense-names"></td>
+  <td><input name="exp_amount" value="{{ e.amount }}" inputmode="decimal" class="js-exp-amount" placeholder="0"></td>
+  <td>
+    <select name="exp_period" class="js-exp-period">
+      {% for value, label in EXPENSE_PERIODS.items() %}<option value="{{ value }}" {{ 'selected' if e.period == value }}>{{ label }}</option>{% endfor %}
+    </select>
+  </td>
+  <td class="num nowrap js-exp-total">—</td>
+  <td><button type="button" class="btn btn-sm btn-danger js-remove" title="Удалить строку">✕</button></td>
+</tr>
+{% endmacro %}
+
+{% block content %}
+{% if msg == 'saved' %}<div class="alert ok">Сервер сохранён</div>{% endif %}
+<div class="crumbs"><a href="/servers">Серверы</a></div>
+<div class="title-row">
+  <h1>{{ 'Сервер ' ~ server.name if server else 'Новый сервер' }}</h1>
+  {% if server %}
+  <div class="actions">
+    <form method="post" action="/servers/{{ server.id }}/copy"><button class="btn" title="Новый сервер с теми же комплектующими">Копия</button></form>
+    <form method="post" action="/servers/{{ server.id }}/delete" onsubmit="return confirm('Удалить сервер {{ server.name }}?{% if server.services %} Он будет убран из сервисов: {{ server.services | map(attribute='service.name') | join(', ') }}.{% endif %}')"><button class="btn btn-danger">Удалить</button></form>
+  </div>
+  {% endif %}
+</div>
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+
+{% if server %}
+<section class="card">
+  <h2>В сервисах</h2>
+  {% if server.services %}
+  <table class="compact">
+    <thead><tr><th>Сервис</th><th>Выделено</th><th class="num">В месяц</th></tr></thead>
+    <tbody>
+    {% for a in server.services | sort(attribute='service.name') %}
+      <tr><td><a href="/services/{{ a.service_id }}#servers">{{ a.service.name }}</a></td>
+        <td class="parts">{{ allocated_chips(a.whole, allocated_amounts(a), usage.capacities) }}</td>
+        <td class="num">{{ allocation_cost(a) | money }}</td></tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><td colspan="2">{% if usage.unallocated_cost > 0.005 %}<span class="run-text">Не выделено</span>{% else %}Выделено полностью{% endif %}</td>
+      <td class="num">{% if usage.unallocated_cost > 0.005 %}{{ usage.unallocated_cost | money }}{% endif %}</td></tr></tfoot>
+  </table>
+  <div class="usage-block mt">{{ usage_bars(usage) }}</div>
+  <p class="hint">Выделенные ресурсы меняются на странице сервиса.</p>
+  {% else %}
+  <p class="muted">Сервер пока не добавлен ни в один сервис. Добавить его можно на странице сервиса: «+ Добавить серверы».</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<form method="post" action="{{ '/servers/%d' % server.id if server else '/servers' }}" class="form" id="server-form">
+  <div class="card">
+    <div class="row">
+      <label class="grow">Название <input name="name" value="{{ form.name }}" required maxlength="190" placeholder="es-hot-01"></label>
+      <label class="w-200">Тип <input name="kind" value="{{ form.kind }}" maxlength="100" list="kinds" placeholder="Сервер"></label>
+      <label class="w-200">Хост / IP <input name="host" value="{{ form.host }}" maxlength="300" placeholder="10.0.1.21"></label>
+    </div>
+    <datalist id="kinds"><option value="Сервер"><option value="Виртуальная машина"><option value="СХД"><option value="Сетевое оборудование"><option value="Лицензия"></datalist>
+    <label>Описание <textarea name="description" rows="2">{{ form.description }}</textarea></label>
+    {% if not server %}
+    <div class="row">
+      <label class="w-140">Сколько создать <input name="count" value="{{ form.count }}" inputmode="numeric" required></label>
+      <label class="w-200">Сразу добавить в сервис
+        <select name="service_id" id="service-select">
+          <option value="">— не добавлять —</option>
+          {% for svc in services %}<option value="{{ svc.id }}" {{ 'selected' if form.service_id == svc.id }}>{{ svc.name }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <p class="hint">Если создать несколько одинаковых серверов, к названию добавится номер: es-hot-01, es-hot-02 и т. д.
+      Сервису серверы добавляются целиком; выделить часть ресурсов можно потом, на странице сервиса.</p>
+    {% endif %}
+  </div>
+
+  <h2>Комплектующие</h2>
+  <p class="hint">Цена — за одну штуку. «В месяц» — аренда или облако; «покупка» — цена делится на срок амортизации.
+    Ёмкость (ядра, ГБ памяти и дисков, Гбит/с) — то, что выделяется сервисам; для дисков она обязательна (1 ТБ = 1000 ГБ).
+    Позиции без ёмкости (лицензии, прочее) делятся между сервисами пропорционально выделенным ресурсам.
+    Регулярные расходы — электроэнергию, колокацию, поддержку — удобнее вести ниже, в «Расходах на обслуживание».</p>
+  <div class="table-wrap">
+  <table class="parts-table">
+    <thead><tr><th>Категория</th><th>Модель / ТТХ</th><th>Ёмкость 1 шт.</th><th>Тип диска</th><th>Шт.</th><th>Цена 1 шт., {{ current_currency().symbol }}</th><th>Цена</th><th>Амортизация</th><th class="num">В месяц</th><th></th></tr></thead>
+    <tbody id="parts">
+      {% for p in form.parts %}{{ part_row(p) }}{% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="8"><button type="button" class="btn btn-sm" id="add-part">+ Добавить комплектующее</button></td><td></td><td></td></tr>
+      <tr><td colspan="8" class="right">Комплектующие в месяц</td><td class="num nowrap" id="parts-total">—</td><td></td></tr>
+    </tfoot>
+  </table>
+  </div>
+  <template id="part-template">{{ part_row(empty_part) }}</template>
+
+  <h2>Расходы на обслуживание</h2>
+  <p class="hint">Электроэнергия, колокация, техподдержка, администрирование и т. п. Сумма — в месяц или в год;
+    «% от покупки в год» — процент от цены купленных комплектующих (типично для вендорской поддержки).
+    Если сервер делят несколько сервисов, расходы делятся пропорционально выделенным ресурсам.</p>
+  <div class="table-wrap expenses-wrap">
+  <table class="parts-table expenses-table">
+    <thead><tr><th>Статья</th><th>Сумма, {{ current_currency().symbol }} / %</th><th>Период</th><th class="num">В месяц</th><th></th></tr></thead>
+    <tbody id="expenses">
+      {% for e in form.expenses %}{{ expense_row(e) }}{% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="3"><button type="button" class="btn btn-sm" id="add-expense">+ Добавить расход</button></td><td></td><td></td></tr>
+      <tr><td colspan="3" class="right">Обслуживание в месяц</td><td class="num nowrap" id="expenses-total">—</td><td></td></tr>
+      <tr><td colspan="3" class="right">Сервер в месяц</td><td class="num nowrap"><b id="unit-total">—</b></td><td></td></tr>
+    </tfoot>
+  </table>
+  </div>
+  <template id="expense-template">{{ expense_row(empty_expense) }}</template>
+  <datalist id="expense-names"><option value="Электроэнергия"><option value="Колокация / стойко-место"><option value="Техподдержка вендора"><option value="Администрирование"><option value="Резервное копирование"><option value="Мониторинг"><option value="Сетевой канал"></datalist>
+
+  <div class="buttons">
+    <button class="btn btn-primary">Сохранить</button>
+    <a class="btn btn-link" href="{{ '/services/%d#servers' % form.service_id if form.service_id else '/servers' }}">Отмена</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const tbody = document.getElementById("parts");
+  const tpl = document.getElementById("part-template");
+  const currency = {{ current_currency().symbol | tojson }};
+  const num = (v) => { const x = parseFloat(String(v || "").replace(/\s/g, "").replace(",", ".")); return isFinite(x) ? x : NaN; };
+  const money = (v) => isFinite(v) ? v.toLocaleString("ru-RU", {minimumFractionDigits: 2, maximumFractionDigits: 2}) + " " + currency : "—";
+
+  function setupRow(tr) {
+    const cat = tr.querySelector(".js-category");
+    const mode = tr.querySelector(".js-mode");
+    const sync = () => {
+      tr.querySelector(".js-unit").textContent = cat.selectedOptions[0].dataset.unit;
+      tr.querySelector(".js-disk-type").hidden = cat.value !== "disk";
+      tr.querySelector(".js-amort-wrap").hidden = mode.value !== "capex";
+    };
+    cat.addEventListener("change", () => { sync(); recalc(); });
+    mode.addEventListener("change", () => { sync(); recalc(); });
+    tr.querySelector(".js-remove").addEventListener("click", () => { tr.remove(); recalc(); });
+    sync();
+  }
+
+  function rowMonthly(tr) {
+    const qty = num(tr.querySelector(".js-qty").value);
+    const price = num(tr.querySelector(".js-price").value);
+    if (!isFinite(qty) || !isFinite(price)) return NaN;
+    if (tr.querySelector(".js-mode").value === "capex") {
+      const months = num(tr.querySelector(".js-amort").value);
+      return months >= 1 ? price / months * qty : NaN;
+    }
+    return price * qty;
+  }
+
+  // Цена покупки комплектующих — база для расходов «% от покупки в год»
+  function capexTotal() {
+    let sum = 0;
+    tbody.querySelectorAll(".part-row").forEach(tr => {
+      if (tr.querySelector(".js-mode").value !== "capex") return;
+      const v = num(tr.querySelector(".js-price").value) * num(tr.querySelector(".js-qty").value);
+      if (isFinite(v)) sum += v;
+    });
+    return sum;
+  }
+
+  function expenseMonthly(tr, capex) {
+    const amount = num(tr.querySelector(".js-exp-amount").value);
+    if (!isFinite(amount)) return NaN;
+    const period = tr.querySelector(".js-exp-period").value;
+    if (period === "yearly") return amount / 12;
+    if (period === "percent") return capex * amount / 100 / 12;
+    return amount;
+  }
+
+  function recalc() {
+    let parts = 0, expenses = 0;
+    tbody.querySelectorAll(".part-row").forEach(tr => {
+      const m = rowMonthly(tr);
+      tr.querySelector(".js-row-total").textContent = money(m);
+      if (isFinite(m)) parts += m;
+    });
+    const capex = capexTotal();
+    expTbody.querySelectorAll(".expense-row").forEach(tr => {
+      const m = expenseMonthly(tr, capex);
+      tr.querySelector(".js-exp-total").textContent = money(m);
+      if (isFinite(m)) expenses += m;
+    });
+    document.getElementById("parts-total").textContent = money(parts);
+    document.getElementById("expenses-total").textContent = money(expenses);
+    document.getElementById("unit-total").textContent = money(parts + expenses);
+  }
+
+  function setupExpense(tr) {
+    tr.querySelector(".js-exp-period").addEventListener("change", recalc);
+    tr.querySelector(".js-remove").addEventListener("click", () => { tr.remove(); recalc(); });
+  }
+
+  const expTbody = document.getElementById("expenses");
+  tbody.querySelectorAll(".part-row").forEach(setupRow);
+  expTbody.querySelectorAll(".expense-row").forEach(setupExpense);
+  document.getElementById("add-expense").addEventListener("click", () => {
+    const tr = document.getElementById("expense-template").content.firstElementChild.cloneNode(true);
+    expTbody.appendChild(tr);
+    setupExpense(tr);
+    tr.querySelector("input").focus();
+    recalc();
+  });
+  document.getElementById("add-part").addEventListener("click", () => {
+    const tr = tpl.content.firstElementChild.cloneNode(true);
+    tbody.appendChild(tr);
+    setupRow(tr);
+    tr.querySelector("select").focus();
+    recalc();
+  });
+  document.getElementById("server-form").addEventListener("input", recalc);
+
+  recalc();
+})();
+</script>
+{% endblock %}

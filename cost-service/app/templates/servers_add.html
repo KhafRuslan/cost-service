@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_server.html" import parts_chips %}
+{% from "_alloc.html" import alloc_fields %}
+{% block title %}Добавить серверы · {{ service.name }} · Cost Service{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/">Сервисы</a> / <a href="/services/{{ service.id }}">{{ service.name }}</a></div>
+<div class="title-row">
+  <h1>Добавить серверы в {{ service.name }}</h1>
+  <div class="actions"><a class="btn" href="/servers/new?service_id={{ service.id }}">+ Новый сервер</a></div>
+</div>
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+
+{% if candidates %}
+<p class="hint">Отметьте серверы и укажите, что выделить сервису: весь сервер или конкретные ресурсы — ядра, ГБ памяти, ГБ дисков.
+  Цена единицы ресурса — стоимость комплектующих ÷ их ёмкость; лицензии и прочие расходы сервера делятся пропорционально.</p>
+<form method="post" action="/services/{{ service.id }}/servers" class="form" id="add-form">
+  <div class="row tools">
+    <label class="search">{{ icon('search', 16) }}<input type="search" id="server-search" placeholder="Поиск по имени, хосту, модели"></label>
+    <label class="check"><input type="checkbox" id="only-free" checked> Только со свободными ресурсами</label>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>Сервер</th><th>Комплектующие</th><th class="num">Сервер / мес</th><th>Выделить сервису</th></tr></thead>
+    <tbody>
+    {% for srv, cost, caps, free in candidates %}
+      {% set has_free = (not srv.services) or (free.values() | select('gt', 0.000001) | list) %}
+      {% set p = 's%d_' % srv.id %}
+      {% if form.submitted %}{% set values = form %}{% set whole = form.get(p ~ 'whole') == 'on' %}
+      {% else %}{% set values = {} %}{% for k, v in free.items() %}{% set _ = values.update({p ~ k: v | plain}) %}{% endfor %}{% set whole = not srv.services %}{% endif %}
+      <tr data-search="{{ [srv.name, srv.host, srv.kind] | join(' ') | lower }} {{ srv.parts | map(attribute='name') | join(' ') | lower }}" data-free="{{ 1 if has_free else 0 }}">
+        <td><input type="checkbox" name="server_ids" value="{{ srv.id }}" class="pick" {{ 'checked' if srv.id in form.get('server_ids', []) }} {{ 'disabled' if not has_free }}></td>
+        <td><a href="/servers/{{ srv.id }}" target="_blank" class="server-name"><b>{{ srv.name }}</b></a>
+          <div class="muted small">{{ srv.kind }}{% if srv.host %} · <span class="mono">{{ srv.host }}</span>{% endif %}
+            {% if srv.services %}<br>уже в: {{ srv.services | map(attribute='service.name') | join(', ') }}{% endif %}</div></td>
+        <td class="parts">{{ parts_chips(srv) }}</td>
+        <td class="num">{{ cost | money }}</td>
+        <td>{% if has_free %}{{ alloc_fields(srv, caps, free, p, values, whole, not srv.services, cost) }}{% else %}<span class="muted small">всё выделено другим сервисам</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted empty-search" id="no-match" hidden>Ничего не найдено</p>
+  <div class="buttons">
+    <button class="btn btn-primary">Добавить отмеченные</button>
+    <a class="btn btn-link" href="/services/{{ service.id }}#servers">Отмена</a>
+  </div>
+</form>
+{% else %}
+<div class="empty">
+  <p><b>Нет серверов для добавления.</b></p>
+  <p class="muted">Все серверы уже в этом сервисе, или серверов ещё нет.</p>
+  <a class="btn btn-primary" href="/servers/new?service_id={{ service.id }}">+ Новый сервер</a>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const form = document.getElementById("add-form");
+  if (!form) return;
+  const rows = [...form.querySelectorAll("tbody tr")];
+  const search = document.getElementById("server-search");
+  const onlyFree = document.getElementById("only-free");
+  const filter = () => {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    rows.forEach(tr => {
+      const ok = (!q || tr.dataset.search.includes(q)) && (!onlyFree.checked || tr.dataset.free === "1");
+      tr.hidden = !ok; if (ok) shown++;
+    });
+    document.getElementById("no-match").hidden = shown > 0;
+  };
+  search.addEventListener("input", filter);
+  onlyFree.addEventListener("change", filter);
+  // Изменили выделение — отмечаем сервер
+  rows.forEach(tr => {
+    const pick = tr.querySelector(".pick");
+    tr.querySelectorAll(".alloc input").forEach(i => i.addEventListener("input", () => { pick.checked = true; }));
+    tr.querySelectorAll(".alloc-whole, .alloc-fill").forEach(i => i.addEventListener("click", () => { pick.checked = true; }));
+  });
+  filter();
+})();
+</script>
+{% endblock %}

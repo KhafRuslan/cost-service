@@ -1,0 +1,25 @@
+{# Поля выделения ресурсов сервера: «весь сервер» и количество каждого ресурса.
+   prefix — префикс имён полей, values — введённые значения (ключ → строка), free — свободно (ключ → число) #}
+{% from "_server.html" import amount %}
+{% macro alloc_fields(server, capacities, free, prefix, values, whole, whole_allowed, full_cost) -%}
+  {% set capcost = capacities.values() | sum(attribute='cost') %}
+  <div class="alloc" data-full="{{ full_cost | conv }}" data-capcost="{{ capcost | conv }}" data-overhead="{{ (full_cost - capcost) | conv }}">
+    {% if whole_allowed %}
+    <label class="check"><input type="checkbox" name="{{ prefix }}whole" class="alloc-whole" {{ 'checked' if whole }}> Весь сервер</label>
+    {% endif %}
+    <div class="alloc-amounts">
+    {% for key, cap in capacities.items() %}
+      <div class="alloc-row">
+        <span class="alloc-label">{{ RESOURCES[key][0] }}</span>
+        <span class="with-unit"><input name="{{ prefix }}{{ key }}" value="{{ values.get(prefix ~ key, '') }}" inputmode="decimal"
+          class="alloc-amount" data-key="{{ key }}" data-price="{{ cap.unit_price | conv }}"><span class="unit">{{ RESOURCES[key][1] }}</span></span>
+        <span class="small muted">свободно {{ amount(key, free[key]) }} из {{ amount(key, cap.total) }}
+          {% if free[key] > 0 %}<button type="button" class="btn-link small alloc-fill" data-key="{{ key }}" data-value="{{ free[key] | plain }}">всё</button>{% endif %}</span>
+      </div>
+    {% else %}
+      <p class="small muted">У сервера нет комплектующих с ёмкостью — можно выделить только весь сервер.</p>
+    {% endfor %}
+    </div>
+    <div class="small">Сервису в месяц: <b class="alloc-cost">—</b></div>
+  </div>
+{%- endmacro %}

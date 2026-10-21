@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}{{ resource.name if resource else 'Новый ресурс' }} · Cost Service{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/">Сервисы</a> / <a href="/services/{{ service.id }}">{{ service.name }}</a>{% if resource %} / <a href="/resources/{{ resource.id }}">{{ resource.name }}</a>{% endif %}</div>
+<h1>{{ 'Изменить ресурс' if resource else 'Новый ресурс' }}</h1>
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+
+<form method="post" action="{{ '/resources/%d' % resource.id if resource else '/services/%d/resources' % service.id }}" class="form card narrow-wide" id="resource-form">
+  <div class="row">
+    <label class="grow">Название <input name="name" value="{{ form.name }}" required maxlength="200" placeholder="logs-app-prod"></label>
+    <label class="w-200">Тип <input name="kind" value="{{ form.kind }}" maxlength="100" list="resource-kinds"></label>
+  </div>
+  <datalist id="resource-kinds"><option value="datastream"><option value="индекс"><option value="шаблон индексов"><option value="база данных"><option value="бакет"></datalist>
+
+  <label>Дисковое подпространство
+    <select name="pool_id">
+      <option value="">— не выбрано (стоимость не считается) —</option>
+      {% for p in pools %}<option value="{{ p.pool.id }}" {{ 'selected' if form.pool_id == p.pool.id }}>{{ p.pool.name }} · {{ DISK_TYPES[p.pool.disk_type] }} · {{ p.price_per_gb | gbp }} за ГБ</option>{% endfor %}
+    </select>
+  </label>
+  {% if not pools %}<p class="hint">В сервисе нет подпространств — <a href="/services/{{ service.id }}/pools/new">создайте подпространство</a>, чтобы считать стоимость.</p>{% endif %}
+
+  <h2 class="mt">Размер</h2>
+  <div class="radio-group">
+    <label class="radio"><input type="radio" name="size_mode" value="metric" {{ 'checked' if form.size_mode == 'metric' }}> Метрика Prometheus</label>
+    <label class="radio"><input type="radio" name="size_mode" value="manual" {{ 'checked' if form.size_mode == 'manual' }}> Вручную</label>
+  </div>
+
+  <div id="size-metric" {{ 'hidden' if form.size_mode != 'metric' }}>
+    {% if sources %}
+    <label>Источник
+      <select name="source_id" id="source-id">
+        {% for src in sources %}<option value="{{ src.id }}" {{ 'selected' if form.source_id == src.id }}>{{ src.name }} — {{ src.url }}</option>{% endfor %}
+      </select>
+    </label>
+    {% else %}
+    <div class="alert err">Источников Prometheus нет. {% if user.is_admin %}<a href="/admin/prometheus/new">Добавьте источник</a>{% else %}Попросите администратора добавить источник{% endif %} или задайте размер вручную.</div>
+    {% endif %}
+    <label>PromQL-запрос — размер в байтах
+      <textarea name="promql" rows="3" class="mono" id="promql" placeholder='sum(elasticsearch_indices_store_size_bytes_total{index=~".ds-logs-app-prod-.*"})'>{{ form.promql }}</textarea>
+    </label>
+    <p class="hint">Запрос должен вернуть число или вектор (несколько рядов суммируются). Пример для elasticsearch_exporter c <code>--es.indices</code>:
+      <code>sum(elasticsearch_indices_store_size_bytes_total{index=~".ds-logs-app-prod-.*"})</code> — с репликами,
+      <code>…_bytes_primary</code> — только primary-шарды.</p>
+    <div class="row tools">
+      <button type="button" class="btn btn-sm" id="test-btn">Проверить запрос</button>
+      <span id="test-result" class="small"></span>
+    </div>
+  </div>
+
+  <div id="size-manual" {{ 'hidden' if form.size_mode != 'manual' }}>
+    <label>Размер, ГБ <input name="manual_gb" value="{{ form.manual_gb }}" inputmode="decimal" class="w-200"></label>
+  </div>
+
+  <label class="mt">Множитель размера <input name="size_factor" value="{{ form.size_factor }}" inputmode="decimal" class="w-140"></label>
+  <p class="hint">Размер умножается на это число. Например, 2 — если метрика показывает только primary-шарды, а у индекса одна реплика.</p>
+
+  <label>Описание <textarea name="description" rows="2">{{ form.description }}</textarea></label>
+
+  <div class="buttons">
+    <button class="btn btn-primary">Сохранить</button>
+    <a class="btn btn-link" href="{{ '/resources/%d' % resource.id if resource else '/services/%d#resources' % service.id }}">Отмена</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const form = document.getElementById("resource-form");
+  const sync = () => {
+    const mode = form.querySelector("input[name=size_mode]:checked").value;
+    document.getElementById("size-metric").hidden = mode !== "metric";
+    document.getElementById("size-manual").hidden = mode !== "manual";
+  };
+  form.querySelectorAll("input[name=size_mode]").forEach(r => r.addEventListener("change", sync));
+
+  const btn = document.getElementById("test-btn");
+  const out = document.getElementById("test-result");
+  btn.addEventListener("click", async () => {
+    const source = document.getElementById("source-id");
+    out.className = "small muted";
+    out.textContent = "Запрос…";
+    btn.disabled = true;
+    try {
+      const r = await fetch("/api/promql/test", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({source_id: source ? source.value : null, promql: document.getElementById("promql").value}),
+      });
+      const d = await r.json();
+      out.className = "small " + (d.ok ? "ok-text" : "err-text");
+      out.textContent = d.ok ? `Сейчас: ${d.size} (${Math.round(d.bytes).toLocaleString("ru-RU")} байт)` : d.error;
+    } catch (e) {
+      out.className = "small err-text";
+      out.textContent = "Ошибка запроса: " + e;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}

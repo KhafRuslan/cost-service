@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_server.html" import allocated_chips %}
+{% set svc = report.service %}
+{% block title %}{{ svc.name }} · Cost Service{% endblock %}
+{% block content %}
+{% set messages = {'saved': ('ok', 'Сервис сохранён'), 'servers_added': ('ok', 'Серверы добавлены'),
+                   'allocation_saved': ('ok', 'Выделенные ресурсы сохранены'), 'server_removed': ('ok', 'Сервер убран из сервиса'),
+                   'pool_saved': ('ok', 'Подпространство сохранено'),
+                   'pool_deleted': ('ok', 'Подпространство удалено'), 'resource_deleted': ('ok', 'Ресурс удалён'),
+                   'refreshed': ('ok', 'Размеры ресурсов обновлены'),
+                   'refresh_failed': ('err', 'Не все размеры удалось обновить — ошибки видны в таблице ресурсов')} %}
+{% if msg in messages %}<div class="alert {{ messages[msg][0] }}">{{ messages[msg][1] }}</div>{% endif %}
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+
+<div class="crumbs"><a href="/">Сервисы</a></div>
+<div class="title-row">
+  <div>
+    <h1>{{ svc.name }}</h1>
+    {% if svc.description %}<p class="muted lead">{{ svc.description }}</p>{% endif %}
+  </div>
+  {% if user.can_edit %}
+  <div class="actions">
+    <a class="btn" href="/services/{{ svc.id }}/edit">Изменить</a>
+    <form method="post" action="/services/{{ svc.id }}/delete" onsubmit="return confirm('Удалить сервис {{ svc.name }} со всеми подпространствами и ресурсами? Серверы останутся в списке серверов.')"><button class="btn btn-danger">Удалить</button></form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Инфраструктура в месяц</div>
+    <div class="stat-value">{{ report.infra_cost | money(0) }}</div>
+    <div class="stat-sub">{{ report.servers | length }} серверов{% set partial = report.servers | rejectattr('assignment.whole') | list %}{% if partial %}, {{ partial | length }} частично{% endif %}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Хранение в месяц</div>
+    <div class="stat-value">{{ report.storage_cost | money(0) }}</div>
+    <div class="stat-sub">{{ report.pools | length }} подпространств</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Распределено по ресурсам</div>
+    <div class="stat-value">{{ report.allocated_cost | money(0) }}</div>
+    <div class="stat-sub">{{ report.resources | length }} ресурсов{% if report.resources_without_cost %}, {{ report.resources_without_cost }} без цены{% endif %}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Свободное место</div>
+    <div class="stat-value {{ 'err-text' if report.unallocated_cost < 0 }}">{{ report.unallocated_cost | money(0) }}</div>
+    <div class="stat-sub">оплачено, но не занято</div>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- серверы #}
+<section id="servers" class="section">
+  <div class="title-row">
+    <h2>{{ icon('server') }} Серверы</h2>
+    {% if user.can_edit %}<div class="actions"><a class="btn btn-sm btn-primary" href="/services/{{ svc.id }}/servers/add">+ Добавить серверы</a></div>{% endif %}
+  </div>
+  {% if report.servers %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Сервер</th><th>Выделено сервису</th><th class="num">Сервер / мес</th><th class="num">Сервису / мес</th>{% if user.can_edit %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for sa in report.servers %}
+      {% set a = sa.assignment %}
+      <tr>
+        <td><a href="/servers/{{ sa.server.id }}" class="server-name"><b>{{ sa.server.name }}</b></a>
+          <div class="muted small">{{ sa.server.kind }}{% if sa.server.host %} · <span class="mono">{{ sa.server.host }}</span>{% endif %}
+            {% if sa.server.services | length > 1 %}<br>также в: {{ sa.server.services | rejectattr('service_id', 'equalto', svc.id) | map(attribute='service.name') | join(', ') }}{% endif %}</div></td>
+        <td class="parts">{{ allocated_chips(a.whole, sa.amounts, sa.capacities) }}</td>
+        <td class="num">{{ sa.full_cost | money }}</td>
+        <td class="num"><b>{{ sa.cost | money }}</b>{% if not a.whole %}<div class="muted small">{{ sa.percent | num(1) }}% сервера</div>{% endif %}</td>
+        {% if user.can_edit %}
+        <td class="cell-actions"><div class="actions nowrap">
+          <a class="btn btn-sm" href="/assignments/{{ a.id }}">Изменить</a>
+          <form method="post" action="/assignments/{{ a.id }}/delete" onsubmit="return confirm('Убрать сервер {{ sa.server.name }} из сервиса {{ svc.name }}? Сам сервер останется в списке серверов.')"><button class="btn btn-sm btn-danger">Убрать</button></form>
+        </div></td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><td colspan="3">Итого</td><td class="num"><b>{{ report.infra_cost | money }}</b></td>{% if user.can_edit %}<td></td>{% endif %}</tr></tfoot>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty small-empty">Добавьте серверы, на которых работает сервис. Серверы описываются в разделе <a href="/servers">«Серверы»</a>; одному серверу можно выделить сервису весь сервер или часть ресурсов (ядра, память, диски).</div>
+  {% endif %}
+</section>
+
+{# ---------------------------------------------------------------- подпространства #}
+<section id="pools" class="section">
+  <div class="title-row">
+    <h2>{{ icon('disk') }} Дисковые подпространства</h2>
+    {% if user.can_edit %}<div class="actions"><a class="btn btn-sm btn-primary" href="/services/{{ svc.id }}/pools/new">+ Подпространство</a></div>{% endif %}
+  </div>
+  {% if report.pools %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Подпространство</th><th>Тип</th><th class="num">Полезный объём</th><th>Занято ресурсами</th><th class="num">Цена ГБ / мес</th><th class="num">Стоимость / мес</th><th class="num">Свободно / мес</th></tr></thead>
+    <tbody>
+    {% for p in report.pools %}
+      <tr>
+        <td>{% if user.can_edit %}<a href="/pools/{{ p.pool.id }}"><b>{{ p.pool.name }}</b></a>{% else %}<b>{{ p.pool.name }}</b>{% endif %}
+          <div class="muted small">{% if p.pool.servers %}{{ p.servers | map(attribute='server.name') | join(', ') | truncate(80) }}{% else %}все серверы{% endif %}</div></td>
+        <td><span class="disk disk-{{ p.pool.disk_type }}">{{ DISK_TYPES[p.pool.disk_type] }}</span></td>
+        <td class="num">{{ p.usable_gb | gb }}{% if p.pool.usable_percent != 100 %}<div class="muted small">{{ p.pool.usable_percent | num }}% от {{ p.raw_gb | gb }}</div>{% endif %}</td>
+        <td class="usage">
+          {% if p.usable_gb %}
+            {% set pct = p.used_percent %}
+            <div class="bar"><span class="{{ 'over' if pct > 100 else ('warn' if pct > 85) }}" style="width: {{ [pct, 100] | min }}%"></span></div>
+            <div class="small">{{ p.used_gb | gb }} · {{ pct | num(1) }}%</div>
+          {% else %}<span class="muted small">{{ p.used_gb | gb }} — объём не задан</span>{% endif %}
+        </td>
+        <td class="num">{{ p.price_per_gb | gbp }}<div class="muted small">{{ 'вручную' if p.manual_price else 'по дискам' }}</div></td>
+        <td class="num">{{ p.total_cost | money }}</td>
+        <td class="num {{ 'err-text' if p.unallocated_cost is not none and p.unallocated_cost < 0 }}">{{ p.unallocated_cost | money }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty small-empty">Подпространство объединяет диски одного типа (HDD/SSD/NVMe) и задаёт цену гигабайта для ресурсов.</div>
+  {% endif %}
+</section>
+
+{# ---------------------------------------------------------------- ресурсы #}
+<section id="resources" class="section">
+  <div class="title-row">
+    <h2>{{ icon('database') }} Ресурсы</h2>
+    {% if user.can_edit %}
+    <div class="actions">
+      {% if report.resources | selectattr('resource.uses_metric') | list %}
+      <form method="post" action="/services/{{ svc.id }}/refresh"><button class="btn btn-sm">{{ icon('refresh', 14) }} Обновить размеры</button></form>
+      {% endif %}
+      <a class="btn btn-sm btn-primary" href="/services/{{ svc.id }}/resources/new">+ Ресурс</a>
+    </div>
+    {% endif %}
+  </div>
+  {% if report.resources %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Ресурс</th><th>Подпространство</th><th class="num">Размер</th><th class="num">Цена ГБ / мес</th><th class="num">Стоимость / мес</th><th>Обновлён</th></tr></thead>
+    <tbody>
+    {% for rr in report.resources %}
+      {% set r = rr.resource %}
+      <tr>
+        <td><a href="/resources/{{ r.id }}"><b>{{ r.name }}</b></a><div class="muted small">{{ r.kind }}</div></td>
+        <td>{% if r.pool %}{{ r.pool.name }} <span class="disk disk-{{ r.pool.disk_type }}">{{ DISK_TYPES[r.pool.disk_type] }}</span>{% else %}<span class="run-text">не выбрано</span>{% endif %}</td>
+        <td class="num">{{ rr.size_gb | gb }}{% if r.size_factor != 1 %}<div class="muted small">× {{ r.size_factor | num }}</div>{% endif %}</td>
+        <td class="num">{{ rr.price_per_gb | gbp }}</td>
+        <td class="num"><b>{{ rr.cost | money }}</b></td>
+        <td>
+          {%- if not r.uses_metric %}<span class="muted">задан вручную</span>
+          {%- elif r.last_error %}<span class="badge err" title="{{ r.last_error }}">ошибка</span>{% if r.last_success_at %} <span class="muted small">данные от {{ r.last_success_at | dt }}</span>{% endif %}
+          {%- elif r.last_success_at %}{{ r.last_success_at | dt }}
+          {%- else %}<span class="muted">ещё не обновлялся</span>{% endif -%}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><td colspan="4">Итого</td><td class="num"><b>{{ report.allocated_cost | money }}</b></td><td></td></tr></tfoot>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty small-empty">Ресурс — например, datastream Elasticsearch. Его размер берётся из Prometheus, а стоимость считается по цене гигабайта подпространства.</div>
+  {% endif %}
+</section>
+{% endblock %}

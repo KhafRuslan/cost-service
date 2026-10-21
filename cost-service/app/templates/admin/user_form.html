@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ target.username if target else 'Новый пользователь' }} · Cost Service{% endblock %}
+{% block content %}
+{% include "admin/_nav.html" %}
+<div class="narrow">
+<h1>{% if target %}Пользователь {{ target.username }}{% else %}Новый пользователь{% endif %}</h1>
+{% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+<form method="post" action="{{ '/admin/users/%d' % target.id if target else '/admin/users' }}" class="form card" autocomplete="off">
+  <label>Логин <input name="username" value="{{ form.username }}" required maxlength="64"></label>
+  <label>Имя <input name="display_name" value="{{ form.display_name }}" maxlength="200" placeholder="Иван Петров"></label>
+  <label>{{ 'Новый пароль (оставьте пустым, чтобы не менять)' if target else 'Пароль' }}
+    <input name="password" type="password" autocomplete="new-password" {{ '' if target else 'required' }} minlength="8">
+  </label>
+  <label>Пароль ещё раз <input name="password2" type="password" autocomplete="new-password" minlength="8"></label>
+
+  <h2 class="mt">Роль</h2>
+  {% set role_hints = {'viewer': 'только просмотр сервисов и стоимости',
+                       'editor': 'создаёт и меняет сервисы, компоненты, подпространства и ресурсы',
+                       'admin': 'всё, включая пользователей и источники Prometheus'} %}
+  {% for value in ['viewer', 'editor', 'admin'] %}
+    <label class="radio"><input type="radio" name="role" value="{{ value }}" {{ 'checked' if form.role == value }}>
+      <b>{{ ROLES[value] }}</b> — <span class="muted">{{ role_hints[value] }}</span></label>
+  {% endfor %}
+
+  <label class="check mt"><input type="checkbox" name="is_active" {{ 'checked' if form.is_active }}> Учётная запись активна (заблокированный пользователь не может войти)</label>
+
+  <div class="buttons">
+    <button class="btn btn-primary">Сохранить</button>
+    <a class="btn btn-link" href="/admin/users">Отмена</a>
+  </div>
+</form>
+</div>
+{% endblock %}
